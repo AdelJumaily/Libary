@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Lake Monitoring System</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-section {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .form-section h2 {
+            margin-top: 0;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="number"] {
+            width: 200px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .chart-container {
+            margin-top: 20px;
+            height: 400px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Lake Monitoring System</h1>
+        
+        <div class="form-section">
+            <h2>Upload Data</h2>
+            <div class="form-group">
+                <label for="csvFile">Upload CSV File:</label>
+                <input type="file" id="csvFile" accept=".csv" />
+                <button onclick="uploadCSV()">Upload CSV</button>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <h2>Manual Entry</h2>
+            <div class="form-group">
+                <label for="time">Time (minutes):</label>
+                <input type="number" id="time" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="do">Dissolved Oxygen (mg/L):</label>
+                <input type="number" id="do" step="0.1" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="turbidity">Turbidity (NTU):</label>
+                <input type="number" id="turbidity" step="0.1" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="ph">pH:</label>
+                <input type="number" id="ph" step="0.1" required>
+            </div>
+            
+            <button onclick="addMeasurement()">Add Measurement</button>
+        </div>
+        <button onclick="predictFuture()">Predict Future DO</button>
+        
+        <div class="chart-container">
+            <canvas id="measurementChart"></canvas>
+        </div>
+        
+        <table id="dataTable">
+            <thead>
+                <tr>
+                    <th>Time (min)</th>
+                    <th>DO (mg/L)</th>
+                    <th>Turbidity (NTU)</th>
+                    <th>pH</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <script>
+        let measurements = [];
+        let chart;
+
+        // Initialize the chart
+        function initChart() {
+            const ctx = document.getElementById('measurementChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Dissolved Oxygen (mg/L)',
+                        data: [],
+                        borderColor: 'rgb(75, 192, 192)',
+                        tension: 0.1
+                    }, {
+                        label: 'Predicted DO (mg/L)',
+                        data: [],
+                        borderColor: 'rgb(255, 99, 132)',
+                        borderDash: [5, 5],
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Dissolved Oxygen (mg/L)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Time (minutes)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Add new measurement
+        function addMeasurement() {
+            const time = parseFloat(document.getElementById('time').value);
+            const do_level = parseFloat(document.getElementById('do').value);
+            const turbidity = parseFloat(document.getElementById('turbidity').value);
+            const ph = parseFloat(document.getElementById('ph').value);
+
+            if (isNaN(time) || isNaN(do_level) || isNaN(turbidity) || isNaN(ph)) {
+                alert('Please fill in all fields with valid numbers');
+                return;
+            }
+
+            measurements.push({
+                time,
+                do_level,
+                turbidity,
+                ph
+            });
+
+            // Sort measurements by time
+            measurements.sort((a, b) => a.time - b.time);
+
+            updateTable();
+            updateChart();
+        }
+
+        // Update the data table
+        function updateTable() {
+            const tbody = document.querySelector('#dataTable tbody');
+            tbody.innerHTML = '';
+            
+            measurements.forEach(m => {
+                const row = tbody.insertRow();
+                row.insertCell().textContent = m.time;
+                row.insertCell().textContent = m.do_level.toFixed(2);
+                row.insertCell().textContent = m.turbidity.toFixed(2);
+                row.insertCell().textContent = m.ph.toFixed(2);
+            });
+        }
+
+        // Update the chart
+        function updateChart() {
+            chart.data.labels = measurements.map(m => m.time);
+            chart.data.datasets[0].data = measurements.map(m => m.do_level);
+            chart.update();
+        }
+
+        // Simple linear regression
+        function linearRegression(x, y) {
+            const n = x.length;
+            let sum_x = 0;
+            let sum_y = 0;
+            let sum_xy = 0;
+            let sum_xx = 0;
+
+            for (let i = 0; i < n; i++) {
+                sum_x += x[i];
+                sum_y += y[i];
+                sum_xy += x[i] * y[i];
+                sum_xx += x[i] * x[i];
+            }
+
+            const slope = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x);
+            const intercept = (sum_y - slope * sum_x) / n;
+
+            return { slope, intercept };
+        }
+
+        // Predict future DO levels
+        function predictFuture() {
+            if (measurements.length < 2) {
+                alert('Need at least 2 measurements for prediction');
+                return;
+            }
+
+            const times = measurements.map(m => m.time);
+            const do_levels = measurements.map(m => m.do_level);
+
+            const { slope, intercept } = linearRegression(times, do_levels);
+
+            // Predict next 30 minutes
+            const lastTime = times[times.length - 1];
+            const predictions = [];
+            const predictionTimes = [];
+
+            for (let i = 1; i <= 6; i++) {
+                const futureTime = lastTime + i * 5; // Predict every 5 minutes
+                const prediction = slope * futureTime + intercept;
+                predictionTimes.push(futureTime);
+                predictions.push(prediction);
+            }
+
+            // Update chart with predictions
+            chart.data.labels = [...times, ...predictionTimes];
+            chart.data.datasets[1].data = [...Array(times.length).fill(null), ...predictions];
+            chart.update();
+        }
+
+        // Function to handle CSV upload
+        function uploadCSV() {
+            const fileInput = document.getElementById('csvFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a CSV file');
+                return;
+            }
+
+            Papa.parse(file, {
+                header: true,
+                dynamicTyping: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    if (results.data && results.data.length > 0) {
+                        // Clear existing measurements
+                        measurements = [];
+                        
+                        // Process each row
+                        results.data.forEach(row => {
+                            // Assuming CSV columns are named: time, do_level, turbidity, ph
+                            if (row.time !== null && row.do_level !== null && 
+                                row.turbidity !== null && row.ph !== null) {
+                                measurements.push({
+                                    time: parseFloat(row.time),
+                                    do_level: parseFloat(row.do_level),
+                                    turbidity: parseFloat(row.turbidity),
+                                    ph: parseFloat(row.ph)
+                                });
+                            }
+                        });
+
+                        // Sort measurements by time
+                        measurements.sort((a, b) => a.time - b.time);
+                        
+                        // Update display
+                        updateTable();
+                        updateChart();
+                        
+                        alert('CSV data loaded successfully!');
+                    } else {
+                        alert('No valid data found in CSV file');
+                    }
+                },
+                error: function(error) {
+                    console.error('Error:', error);
+                    alert('Error parsing CSV file');
+                }
+            });
+        }
+
+        // Initialize the chart when the page loads
+        initChart();
+    </script>
+</body>
+</html>
